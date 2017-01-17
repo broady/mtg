@@ -1,3 +1,4 @@
+// Package cards provides an interface to fetch card data from mtgjson.com
 package cards
 
 import (
@@ -7,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,7 +50,7 @@ type FormatLegality struct {
 func NewStore() *Store {
 	s := &Store{
 		Logger:          log.New(os.Stderr, "cards.Store: ", log.LstdFlags),
-		UpdateFrequency: time.Hour,
+		updateFrequency: time.Hour,
 		ready:           make(chan bool),
 		closed:          make(chan bool),
 		notifyCh:        make(chan bool),
@@ -62,7 +64,32 @@ func NewStore() *Store {
 // In the future, it will have some methods to allow for search.
 type Cards struct {
 	// Map from card name to the card.
-	M map[string]Card
+	M map[string]*Card
+
+	// Map from normalized card name to the card.
+	normalized map[string]*Card
+}
+
+// LookupNormalized looks up a card name, ignoring case and other
+// symbols (i.e., "Beck // Call" is equivalent to "beck & CALL")
+func (c *Cards) LookupNormalized(cardName string) *Card {
+	return c.normalized[strings.ToLower(normalizeCardName(cardName))]
+}
+
+func (c *Cards) generateNormalized() {
+	for _, card := range c.M {
+		if len(card.Names) != 0 {
+			c.normalized[strings.ToLower(strings.Join(card.Names, " & "))] = card
+			c.normalized[strings.ToLower(strings.Join(card.Names, " / "))] = card
+			c.normalized[strings.ToLower(strings.Join(card.Names, " // "))] = card
+		}
+		c.normalized[strings.ToLower(normalizeCardName(card.Name))] = card
+	}
+}
+
+func normalizeCardName(s string) string {
+	s = strings.Replace(s, "Æ", "Ae", -1)
+	return strings.Replace(s, "’", "'", -1)
 }
 
 // Store is a card store that periodically updates itself from mtgjson.com.
@@ -178,13 +205,14 @@ func (s *Store) maybeUpdate() {
 	}
 
 	cards := &Cards{
-		M: make(map[string]Card),
+		M:          make(map[string]*Card),
+		normalized: make(map[string]*Card),
 	}
 	if err := json.Unmarshal(b, &cards.M); err != nil {
 		s.log().Printf("Could not unmarshal cards: %v, body:\n---\n%s\n---", err, truncate(b, 1000))
 		return
 	}
-
+	cards.generateNormalized()
 	s.mu.Lock()
 	s.etag = resp.Header.Get("Etag")
 	s.cards = cards
