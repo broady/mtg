@@ -29,10 +29,10 @@ type Card struct {
 	Flavor        string
 	Power         string
 	Toughness     string
-	Loyalty       int
 	Printings     []string
 	Legalities    []FormatLegality
 	Rulings       []Ruling
+	// Loyalty       int // Nissa has "X".
 	// Only relevant for specific sets.
 	// MultiverseID  int
 }
