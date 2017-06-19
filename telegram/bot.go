@@ -40,15 +40,6 @@ type mtgBot struct {
 }
 
 func (bot *mtgBot) Start() error {
-	//cards, err := mtgprice.Open(mtgprice.Opts{
-	//Filename: "mtgprice.kv",
-	//CardData: "AllCards.json",
-	//})
-	//if err != nil {
-	//return err
-	//}
-	//closeOnTerm(cards)
-	//bot.store = cards
 	bot.store = cards.NewStore()
 
 	updates, err := bot.b.GetUpdatesChan(tg.UpdateConfig{Timeout: 60})
@@ -70,9 +61,14 @@ func (bot *mtgBot) Start() error {
 		}
 	}
 }
-
 func (bot *mtgBot) handleInline(id int, q *tg.InlineQuery) {
+	var reply tg.InlineConfig
+	reply.InlineQueryID = q.ID
+
 	if q.Query == "" {
+		if _, err := bot.b.AnswerInlineQuery(reply); err != nil {
+			vlog(err)
+		}
 		return
 	}
 
@@ -82,22 +78,15 @@ func (bot *mtgBot) handleInline(id int, q *tg.InlineQuery) {
 		return
 	}
 
-	/*
-		cards, err := deckbrew.Autocomplete(q.Query)
-		if err != nil {
-			vlog(err)
-			return
-		}
-	*/
-
-	var reply tg.InlineConfig
-	reply.InlineQueryID = q.ID
-
 	for _, c := range cards {
+		if len(reply.Results) > 10 {
+			break
+		}
+
 		title := fmt.Sprintf("%s %v", c.Name, c.Types)
 		txt := fmt.Sprintf(`*%s* %s
 %s
-http://gatherer.wizards.com/Handlers/Image.ashx?name=%s&type=card`,
+https://api.scryfall.com/cards/named/?exact=%s&format=image`,
 			c.Name, c.ManaCost,
 			c.Text, url.QueryEscape(c.Name))
 
