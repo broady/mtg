@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,89 +33,6 @@ type Entry struct {
 }
 
 var markdownRE = regexp.MustCompile(`\[([^]]*)\]`)
-
-// always returns a 401. need an API key.
-func deckFromURLWithAPIKey(deckURL string) (*Deck, error) {
-	u, err := url.Parse(deckURL)
-	if err != nil {
-		return nil, err
-	}
-	if u.Host != "tappedout.net" && u.Host != "www.tappedout.net" {
-		return nil, fmt.Errorf("must be a tappedout.net URL; got %q", u.Host)
-	}
-	if !strings.HasPrefix(u.Path, "/mtg-decks/") {
-		return nil, errors.New("must be a deck URL")
-	}
-	slug := u.Path[len("/mtg-decks/"):]
-
-	// NOTE: tappedout is horrible and redirects https to http incorrectly.
-	req, _ := http.NewRequest("GET", "http://tappedout.net/api/collection:deck/"+slug, nil)
-	req.Header.Set("User-Agent", "github.com_broady_mtg")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode > 299 {
-		return nil, fmt.Errorf("%q: non-OK response from tappedout: %s", slug, resp.Status)
-	}
-
-	deck := &Deck{}
-
-	var out struct {
-		Inventory struct {
-			Cards [][]json.RawMessage
-		}
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-
-	for _, card := range out.Inventory.Cards {
-		var name string
-		if err := json.Unmarshal(card[0], &name); err != nil {
-			return nil, fmt.Errorf("could not unmarshal name: %v (%s)", err, card)
-		}
-		var info struct {
-			Qty    int
-			B      string
-			TLA    string
-			Alter  bool
-			Foil   bool
-			Signed bool
-			Cmdr   bool
-		}
-		if err := json.Unmarshal(card[1], &info); err != nil {
-			return nil, fmt.Errorf("could not unmarshal info: %v (%s)", err, card)
-		}
-
-		entry := &Entry{
-			Quantity:  info.Qty,
-			Printing:  info.TLA,
-			Alter:     info.Alter,
-			Foil:      info.Foil,
-			Signed:    info.Signed,
-			Commander: info.Cmdr,
-		}
-		switch info.B {
-		case "main":
-			deck.Mainboard = append(deck.Mainboard, entry)
-			if entry.Commander {
-				deck.Commanders = append(deck.Commanders, entry)
-			}
-		case "side":
-			deck.Sideboard = append(deck.Sideboard, entry)
-		case "maybe":
-			deck.Maybeboard = append(deck.Maybeboard, entry)
-		case "acquire":
-			deck.Acquireboard = append(deck.Acquireboard, entry)
-		default:
-			return nil, fmt.Errorf("bad board: %s", card)
-		}
-	}
-
-	return deck, nil
-}
 
 func DeckFromURL(deckURL string) (*Deck, error) {
 	u, err := url.Parse(deckURL)
